@@ -1,11 +1,22 @@
 WITH NTP AS (
 SELECT PARSE_DATE('%Y%m%d', date) AS reportdate,
-       channelgrouping AS default_channel_group,
+       --channelgrouping AS channelgrouping,
+       case when trafficsource.source = '(direct)' and (trafficsource.medium = '(not set)' or trafficsource.medium = '(none)') then 'Direct'
+            when trafficsource.medium = 'organic' then 'Organic Search'
+            when hits.social.hassocialsourcereferral = 'Yes' or regexp_contains(trafficsource.medium, '^(social|social-network|social-media|sm|social network|social media)$') then 'Social'
+            when trafficsource.medium = 'email' then 'Email'
+            when trafficsource.medium = 'affiliate' then 'Affiliates'
+            when trafficsource.medium = 'referral' then 'Referral'
+            when regexp_contains(trafficsource.medium, '^(cpc|ppc|paidsearch)$') and trafficsource.adwordsclickinfo.adnetworktype != 'Content' then 'Paid Search'
+            when regexp_contains(trafficsource.medium, '^(cpv|cpa|cpp|content-text)$') then 'Other Advertising'
+            when regexp_contains(trafficsource.medium, '^(display|cpm|banner)$') or trafficsource.adwordsclickinfo.adnetworktype = 'Content' then 'Display'
+            else '(Other)'
+        end as default_channel_group,
        SUM(hits.transaction.transactionrevenue)/1000000 AS revenue,
        COUNT(DISTINCT CONCAT(fullvisitorid, CAST(visitstarttime AS STRING))) AS sessions,
   FROM `firebasereiss-dmk-preprod.256000298.ga_sessions_*`, UNNEST(hits) AS hits
  WHERE totals.visits = 1
- GROUP BY 1, 2),
+ GROUP BY 1, 2)/*,
 
 legacy AS (
 SELECT PARSE_DATE('%Y%m%d', date) AS reportdate,
@@ -25,13 +36,23 @@ SELECT PARSE_DATE('%Y%m%d', datestring) AS reportdate,
 
 combined AS (
 SELECT *
-  FROM NTP 
-UNION ALL 
+  FROM NTP
+ WHERE revenue IS NOT NULL 
+   AND sessions IS NOT NULL 
+
+ UNION ALL 
+
 SELECT *
   FROM legacy
-UNION ALL 
+ WHERE revenue IS NOT NULL 
+   AND sessions IS NOT NULL
+
+ UNION ALL 
+
 SELECT *
-  FROM LY2_data),
+  FROM LY2_data
+ WHERE revenue IS NOT NULL 
+   AND sessions IS NOT NULL),
 
 marketing_kpi AS (
 SELECT reportdate,
@@ -39,19 +60,22 @@ SELECT reportdate,
        SUM(revenue) AS revenue,
        SUM(sessions) AS sessions
   FROM combined
- WHERE revenue IS NOT NULL 
-   AND sessions IS NOT NULL
  GROUP BY 1, 2)
-/*
-SELECT *
-  FROM marketing_kpi
- WHERE default_channel_group = 'Paid Search'
-   AND reportdate BETWEEN '2022-03-27' AND '2022-04-02'
-*/
+ */
 
-SELECT default_channel_group,
-       MIN(reportdate),
-       MAX(reportdate)
-  FROM legacy
- GROUP BY 1
+SELECT *
+  FROM NTP
+ ORDER BY reportdate DESC
+
+
+
+
+
+
+
+
+
+
+
+
 
