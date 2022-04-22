@@ -1,0 +1,57 @@
+WITH NTP AS (
+SELECT PARSE_DATE('%Y%m%d', date) AS reportdate,
+       channelgrouping AS default_channel_group,
+       SUM(hits.transaction.transactionrevenue)/1000000 AS revenue,
+       COUNT(DISTINCT CONCAT(fullvisitorid, CAST(visitstarttime AS STRING))) AS sessions,
+  FROM `firebasereiss-dmk-preprod.256000298.ga_sessions_*`, UNNEST(hits) AS hits
+ WHERE totals.visits = 1
+ GROUP BY 1, 2),
+
+legacy AS (
+SELECT PARSE_DATE('%Y%m%d', date) AS reportdate,
+       channelgrouping AS default_channel_group,
+       SUM(hits.transaction.transactionrevenue)/1000000 AS revenue,
+       COUNT(DISTINCT CONCAT(fullvisitorid, CAST(visitstarttime AS STRING))) AS sessions,
+  FROM `sdv-reiss-prd.187867517.ga_sessions_*`, UNNEST(hits) AS hits
+ WHERE totals.visits = 1
+ GROUP BY 1, 2),
+
+LY2_data AS (
+SELECT PARSE_DATE('%Y%m%d', datestring) AS reportdate,
+       default_channel_group,
+       revenue,
+       sessions
+  FROM `reiss-historical-sales-data.marketing_data.ly2_GA_revenue_sessions`),
+
+combined AS (
+SELECT *
+  FROM NTP 
+UNION ALL 
+SELECT *
+  FROM legacy
+UNION ALL 
+SELECT *
+  FROM LY2_data),
+
+marketing_kpi AS (
+SELECT reportdate,
+       default_channel_group,
+       SUM(revenue) AS revenue,
+       SUM(sessions) AS sessions
+  FROM combined
+ WHERE revenue IS NOT NULL 
+   AND sessions IS NOT NULL
+ GROUP BY 1, 2)
+/*
+SELECT *
+  FROM marketing_kpi
+ WHERE default_channel_group = 'Paid Search'
+   AND reportdate BETWEEN '2022-03-27' AND '2022-04-02'
+*/
+
+SELECT default_channel_group,
+       MIN(reportdate),
+       MAX(reportdate)
+  FROM legacy
+ GROUP BY 1
+
