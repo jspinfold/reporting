@@ -1,0 +1,76 @@
+#########################################################################
+## Remove unused columns and convert historic data to the same formats ##
+#########################################################################
+
+WITH next_item_category AS (
+SELECT DISTINCT itemnumber,
+       CASE WHEN gender = 'female' AND product_type NOT LIKE '%Childrenswear%' THEN 'WW'
+            WHEN gender = 'male' AND product_type NOT LIKE '%Childrenswear%' THEN 'MW'
+            WHEN UPPER(subgroupdescription) LIKE '%BOY%' THEN 'BW'
+            WHEN UPPER(subgroupdescription) LIKE '%GIRL%' THEN 'GW'
+            ELSE NULL
+        END AS gender,
+        TRIM(REGEXP_EXTRACT(product_type, "[^>]*$")) AS product_category 
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.directory_items_history` 
+ WHERE gender IS NOT NULL),
+
+next_item_category_concat AS (
+SELECT itemnumber,
+       gender AS category_gender,
+       CONCAT(
+           (CASE WHEN gender = 'MW' THEN "Men's "
+                 WHEN gender = 'WW' THEN "Women's "
+                 WHEN gender = 'BW' THEN "Boy's "
+                 WHEN gender = 'GW' THEN "Girl's " END), product_category) AS category_name
+  FROM next_item_category)
+    
+SELECT basketid AS order_id,
+       basketlineid,
+       itemno,
+       optionno AS option_no,
+       COALESCE(p.category_gender, p2.category_gender,NULL) AS category_gender,
+       COALESCE(p.category_name, p2.category_name,NULL) AS category_name,
+       account_number,
+       CASE WHEN clientid = 'RSAU' THEN 'AU' 
+            WHEN clientid = 'RSDE' THEN 'DE' 
+            WHEN clientid = 'RSEU' THEN 'EU'
+            WHEN clientid = 'RSFR' THEN 'FR' 
+            WHEN clientid = 'RSGB' THEN 'UK' 
+            WHEN clientid = 'RSHK' THEN 'HK' 
+            WHEN clientid = 'RSIE' THEN 'IE' 
+            WHEN clientid = 'RSNL' THEN 'NL' 
+            WHEN clientid = 'RSUS' THEN 'US' 
+            WHEN clientid = 'RSWO' THEN 'RW'
+            WHEN clientid LIKE 'RS%' THEN REPLACE(clientid, 'RS', '') 
+            ELSE clientid 
+        END AS site_country,
+        isocountrycode AS account_country,
+        currencycode AS currency_code,
+        s740orderstakenqty AS order_quantity,
+        s740orderstakenvalue AS product_revenue,
+        COALESCE(SAFE_CAST(order_promotion AS FLOAT64),0) AS order_promotion,
+        COALESCE(SAFE_CAST(order_item_promotion AS FLOAT64),0) AS order_item_promotion,
+        ordertakendate AS order_timestamp,
+        CAST(ordertakendate AS DATE) AS order_date,
+        CASE WHEN despatchdate = '1900-01-01 00:00:00' THEN NULL ELSE despatchdate END AS despatch_timestamp,
+        CASE WHEN returndate = '1900-01-01 00:00:00' THEN NULL ELSE returndate END AS return_timestamp,
+        CASE WHEN canceldate = '1900-01-01 00:00:00' THEN NULL ELSE canceldate END AS cancel_timestamp,
+        deladdressind,
+        s740despatchqty AS despatch_quantity, 
+        s740despatchvalue AS despatch_value,
+        s740returnsqty AS returned_quantity,
+        s740returnsvalue AS returned_value,
+        s740cancelsqty AS cancelled_quantity,
+        s740cancelsvalue AS cancelled_value,
+        currencyrate,
+        handchargepaidgbp AS shipping_cost,
+        emailaddress       
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets` AS b
+  LEFT JOIN `firebasereiss-dmk-preprod.reiss_tableau.historical_product_sku_lookup` AS p
+    ON LEFT(b.itemno,2) = p.category_code
+  LEFT JOIN next_item_category_concat AS p2
+    ON b.itemno = p2.itemnumber 
+
+ 
+
+
