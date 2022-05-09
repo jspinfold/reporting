@@ -64,7 +64,7 @@ SELECT basketid AS order_id,
         s740cancelsvalue AS cancelled_value,
         currencyrate,
         handchargepaidgbp AS shipping_cost,
-        emailaddress       
+        LOWER(emailaddress) AS email_address       
   FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets` AS b
   LEFT JOIN `firebasereiss-dmk-preprod.reiss_tableau.historical_product_sku_lookup` AS p
     ON LEFT(b.itemno,2) = p.category_code
