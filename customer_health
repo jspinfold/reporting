@@ -1,0 +1,42 @@
+WITH t1 AS (
+SELECT CAST(order_date AS DATE) AS order_date,
+       UPPER(emailaddress) AS customer_id,
+       CASE WHEN clientid IN ('RSGB','UK') THEN 'UK' 
+            WHEN clientid IN ('RSHK','HK') THEN 'HK'
+            WHEN clientid IN ('RSUS','US') THEN 'US'
+            WHEN clientid IN ('RSDE','DE') THEN 'DE'
+            WHEN clientid IN ('RSIE','IE') THEN 'IE'
+            WHEN clientid IN ('RSEU','EU') THEN 'EU'
+            WHEN clientid IN ('CA','RSWO','RW') THEN 'RW'
+            WHEN clientid IN ('RSAU','AU') THEN 'AU'
+            WHEN clientid IN ('RSFR','FR') THEN 'FR'
+            WHEN clientid IN ('RSNL') THEN 'NL' END AS site, 
+       basketid AS order_id,
+       SUM(s740orderstakenvalue)  AS gross_revenue,
+       COUNT(s740orderstakenqty) as quantity,
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+ WHERE basketid IS NOT NULL
+   AND (canceldate IS NULL OR canceldate = '1900-01-01 00:00:00 UTC')
+ GROUP BY 1, 2, 3, 4),
+
+t2 AS (
+SELECT *,
+       ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date ASC) as order_seq,
+       LAG(order_date) OVER (PARTITION BY customer_id ORDER BY order_date ASC) as previous_order_date 
+  FROM t1),
+
+t3 AS (
+SELECT *,
+       DATE_DIFF(order_date, previous_order_date, DAY) AS days_between_orders 
+  FROM t2),
+
+t4 AS (
+SELECT *,
+       CASE WHEN order_seq = 1 then 'new'
+            WHEN days_between_orders > 365 THEN 'reactivated'
+            ELSE 'returning'
+        END AS  customer_type  
+  FROM t3)
+
+SELECT * 
+  FROM t4
