@@ -1,0 +1,104 @@
+WITH emails_this_week AS (
+SELECT channelGrouping,
+       UPPER(campaign) AS campaign, 
+       REGEXP_REPLACE(TRIM(UPPER(REGEXP_REPLACE(campaign,' ',''))), "[_UK]+$|_EU$|_IE$|_AU$|_FR$|_DE$|_CA$|_US$|_RW$|_HK$|_WO$|_NU$|_NL$|_[A-Z]{2}$", "") AS campaign_no_territory,
+       UPPER(productSKU) AS product_sku,
+       SUM(productQuantity) AS quantity,
+       SUM(product_revenue) AS product_revenue
+  FROM `firebasereiss-dmk-preprod.reiss_tableau.reiss_summary_product`
+ GROUP BY 1, 2, 3, 4),
+
+featured_product_list AS (
+SELECT campaign_utm,
+       product_sku_1 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_2 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_3 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_4 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_5 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_6 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_7 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_8 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_9 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_10 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_11 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_12 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`
+ UNION ALL
+SELECT campaign_utm,
+       product_sku_13 AS product_sku,
+       1 AS featured_flag
+  FROM `josh-projects.email.email_featured_products`),
+
+full_email_product_list AS (
+SELECT *
+  FROM featured_product_list
+ WHERE product_sku IS NOT NULL),
+
+combined AS (
+SELECT t1.*,
+       t2.featured_flag 
+  FROM emails_this_week AS t1
+  LEFT JOIN full_email_product_list AS t2
+    ON t1.campaign_no_territory = t2.campaign_utm AND 
+       t1.product_sku = t2.product_sku)
+
+SELECT campaign_no_territory,
+       SAFE.PARSE_DATE('%Y%m%d', LEFT(campaign_no_territory,8)) AS send_date,
+       SUM(product_revenue)	AS total_product_revenue,
+       SUM(CASE WHEN featured_flag = 1 THEN product_revenue END) AS featured_product_revenue
+  FROM combined
+ WHERE SAFE.PARSE_DATE('%Y%m%d', LEFT(campaign_no_territory,8)) BETWEEN '2022-04-01' AND '2022-04-28'
+   AND campaign_no_territory NOT LIKE '%WARDROBE_ICONS_EVENT%'
+   AND NOT REGEXP_CONTAINS(TRIM(campaign_no_territory), "_[A-Z][A-Z]GOLF")
+ GROUP BY 1
+
+
+
+
+
+
