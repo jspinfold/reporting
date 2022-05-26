@@ -1,0 +1,38 @@
+WITH svoc AS (
+SELECT DISTINCT account_number,
+       CASE WHEN origintroductionmethod = 'RS000' AND initialloadtype = '54' THEN 'REISS MIGRATED'
+            WHEN origintroductionmethod = 'RS001' AND initialloadtype = '54' THEN 'REISS NEW'
+            WHEN origintroductionmethod = 'RS001' THEN 'REISS NEW'
+            WHEN origintroductionmethod = 'RSAPL' AND initialloadtype = '51' THEN 'REISS GUEST'
+            WHEN origintroductionmethod = 'RSGST' AND initialloadtype = '51' THEN 'REISS GUEST'
+            ELSE concat(initialloadtype,origintroductionmethod) 
+        END AS account_type,
+        emailoptin
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.svoccust`
+ WHERE accountiscurrent = 'Y' 
+   AND initialloadtype IN ('54','51') 
+   AND origintroductionmethod IN ('RS000','RS001','RSGST','RSAPL')),
+
+baskets AS (
+SELECT DISTINCT basketid,
+       account_number,
+       SUM(s740orderstakenvalue+handchargepaidgbp) AS gross_demand
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+ GROUP BY 1, 2),
+
+dt AS (
+SELECT *
+  FROM svoc
+  LEFT JOIN baskets  
+ USING (account_number))
+
+SELECT account_type,
+       emailoptin,
+       COUNT(DISTINCT account_number) AS customers,
+       COUNT(DISTINCT CASE WHEN basketid IS NOT NULL THEN account_number END) AS shoppers,
+       COUNT(DISTINCT basketid) AS orders,
+       SUM(gross_demand) AS gross_demand,
+       SUM(gross_demand)/COUNT(DISTINCT basketid) AS AOV
+  FROM dt
+ GROUP BY 1, 2
+ 
