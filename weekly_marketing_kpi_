@@ -1,0 +1,59 @@
+WITH spend AS (
+SELECT DISTINCT date AS session_date,
+       CASE WHEN default_channel_grouping = 'SEO' THEN 'Direct' ELSE default_channel_grouping END AS default_channel_grouping,
+       SUM(spend) AS spend
+  FROM `reiss-historical-sales-data.marketing_data.marketing_spend`
+ GROUP BY 1, 2),
+
+legacy_performance AS (
+SELECT *
+  FROM `reiss-historical-sales-data.marketing_data.legacy_marketing_kpi`),
+
+current_performance AS (
+SELECT dateformat,
+       channelGrouping,
+       SUM(sessions),
+       SUM(transactionRevenue)
+  FROM `firebasereiss-dmk-preprod.reiss_tableau.reiss_summary_users_sessions` 
+ WHERE dateformat >= '2022-02-01'
+ GROUP BY 1, 2), 
+
+combined_performance AS (
+SELECT *
+  FROM legacy_performance
+ UNION ALL
+SELECT *
+  FROM current_performance),
+
+dt AS (
+SELECT session_date,
+       default_channel_grouping,
+       SUM(sessions) AS sessions,
+       SUM(revenue) AS revenue,
+       SUM(s.spend) AS spend
+  FROM combined_performance AS c
+  LEFT JOIN spend AS s USING(session_date, default_channel_grouping)
+ GROUP BY 1, 2)
+
+
+SELECT TY.default_channel_grouping,
+       SUM(TY.sessions) AS TY_sessions,
+       SUM(TY.revenue) AS TY_revenue,
+       SUM(TY.spend) AS TY_spend,
+       SUM(LY.sessions) AS LY_sessions,
+       SUM(LY.revenue) AS LY_revenue,
+       SUM(LY.spend) AS LY_spend,
+       SUM(LY2.sessions) AS LY2_sessions,
+       SUM(LY2.revenue) AS LY2_revenue,
+       SUM(LY2.spend) AS LY2_spend
+  FROM dt AS TY
+  LEFT JOIN dt AS LY 
+    ON TY.default_channel_grouping = LY.default_channel_grouping AND 
+       TY.session_date = DATE_ADD(LY.session_date,INTERVAL 364 DAY)
+    LEFT JOIN dt AS LY2 
+    ON TY.default_channel_grouping = LY2.default_channel_grouping AND 
+       TY.session_date = DATE_ADD(LY2.session_date,INTERVAL 1092 DAY)
+ WHERE TY.session_date BETWEEN '2022-05-15' AND '2022-05-21'
+ GROUP BY 1
+
+
