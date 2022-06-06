@@ -55,5 +55,3 @@ SELECT TY.default_channel_grouping,
        TY.session_date = DATE_ADD(LY2.session_date,INTERVAL 1092 DAY)
  WHERE TY.session_date BETWEEN '2022-05-15' AND '2022-05-21'
  GROUP BY 1
-
-
