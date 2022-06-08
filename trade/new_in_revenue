@@ -1,0 +1,20 @@
+WITH first_order_dates AS (
+SELECT itemno,
+       MIN(CAST(orderdate AS DATE)) AS item_first_purchased       
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+ GROUP BY 1),
+
+item_sales AS (
+SELECT itemno,
+       item_first_purchased,
+       CAST(orderdate AS DATE) AS order_date,
+       SUM(s740orderstakenvalue) AS product_revenue
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+  LEFT JOIN first_order_dates USING(itemno)
+ GROUP BY 1, 2, 3)
+
+SELECT order_date,
+       SUM(product_revenue) AS total_revenue, 
+       SUM(CASE WHEN order_date <= DATE_ADD(item_first_purchased, INTERVAL 28 DAY) THEN product_revenue END) AS new_in_revenue
+  FROM item_sales
+ GROUP BY 1
