@@ -1,0 +1,64 @@
+WITH raw_product_data AS (
+SELECT * 
+  FROM `reiss-historical-sales-data.marketing_data.email_product_list_test`
+ WHERE product_raw IS NOT NULL
+   AND email_raw != '_'),
+
+gender_and_sku AS (
+SELECT *,
+       CASE WHEN email_raw LIKE '%MW%' THEN 'MW'
+            WHEN email_raw LIKE '%WW%' THEN 'WW'
+            ELSE 'OT'
+            END AS gender,
+       REGEXP_EXTRACT(email_raw, '[^_]+$') AS date_index,
+       REGEXP_EXTRACT(product_raw, '[A-Z][0-9]{2}[-][0-9]{3}') AS item,
+  FROM raw_product_data),
+
+featured_products AS (
+SELECT DATE_ADD('1899-12-30', INTERVAL CAST(date_index AS INT64) DAY) AS email_send_date,
+       gender AS email_gender,
+       REPLACE(item,"-","") AS item_no
+  FROM gender_and_sku
+ WHERE item IS NOT NULL),
+
+email_product_revenue AS (
+SELECT campaign,
+       productSKU,
+       channelGrouping,
+       product_gender,
+       product_revenue,
+       productQuantity
+  FROM `firebasereiss-dmk-preprod.reiss_tableau.reiss_summary_product` 
+ WHERE channelGrouping = 'Email'),
+
+email_product_breakdown AS (
+SELECT SAFE.PARSE_DATE('%Y%m%d', LEFT(campaign,8)) AS email_send_date,
+       CASE WHEN UPPER(campaign) LIKE '%WW%' THEN 'WW' 
+            WHEN UPPER(campaign) LIKE '%MW%' THEN 'MW'
+            ELSE 'OT'
+            END AS email_gender,
+       UPPER(productSKU) AS item_no, 
+       SUM(product_revenue) AS product_revenue,
+       SUM(productQuantity) AS product_quantity
+  FROM email_product_revenue
+ WHERE productQuantity IS NOT NULL 
+ GROUP BY 1, 2, 3
+ HAVING email_send_date IS NOT NULL),
+
+combined AS (
+SELECT t1.*,
+       CASE WHEN t2.item_no IS NULL THEN 0 ELSE 1 END AS featured_flag
+  FROM email_product_breakdown AS t1
+  LEFT JOIN featured_products AS t2 USING(email_gender, email_send_date, item_no)
+ WHERE email_send_date BETWEEN '2022-05-29' AND '2022-06-04')
+
+
+SELECT email_gender,
+       email_send_date,
+       --featured_flag,
+       --SUM(product_revenue)
+       ROUND(100*SUM(CASE WHEN featured_flag = 1 THEN product_revenue END)/SUM(product_revenue),2) AS featured_percentage
+  FROM combined
+ GROUP BY 1, 2
+ ORDER BY 2 DESC
+
