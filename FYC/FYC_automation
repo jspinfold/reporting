@@ -1,0 +1,105 @@
+WITH non_paid_search_spend AS (
+SELECT DATE_TRUNC(date, WEEK) AS accounting_week,
+       default_channel_grouping,
+       SUM(spend) AS channel_spend
+  FROM `reiss-historical-sales-data.marketing_data.marketing_spend` 
+ WHERE date >= '2022-01-30'
+   AND default_channel_grouping IN ('Affiliates', 'Display', 'Social')
+ GROUP BY 1, 2),
+
+paid_search_breakdown_cost AS (
+SELECT DATE_TRUNC(Date, WEEK) AS accounting_week,
+       CASE WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_B") THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_BC_")  THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_PB_")  THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_NB")  THEN "Generic Text"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"DSA")  THEN "Generic Text"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"BRAND")  THEN "Branded Shopping"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_DES_")  THEN "Branded Shopping"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"GENERIC")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"CAMATO")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"_GEN_")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"PLA")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"DSP/") THEN "Display"
+            WHEN REGEXP_CONTAINS(UPPER(Campaign__AdWords),"DISC/")THEN "Discovery"
+            ELSE "Other" END AS paid_search_type,
+       SUM(Cost__AdWords)*1.073 AS channel_spend
+  FROM `reiss-historical-sales-data.marketing_data.paid_search_costs` 
+ WHERE Date >= '2022-01-30'
+   AND Campaign__AdWords NOT LIKE '%YouTube%'  
+ GROUP BY 1, 2),
+
+all_channel_spend AS (
+SELECT *
+  FROM non_paid_search_spend
+
+ UNION ALL
+
+SELECT *
+  FROM paid_search_breakdown_cost
+ WHERE paid_search_type IN ('Generic Shopping','Branded Text','Branded Shopping','Generic Text')),
+
+performance_data AS (
+SELECT DATE_TRUNC(dateformat, WEEK) AS accounting_week,
+       channelGrouping,
+       CASE WHEN REGEXP_CONTAINS(UPPER(campaign),"_B") THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"_BC_")  THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"_PB_")  THEN "Branded Text"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"_NB")  THEN "Generic Text"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"DSA")  THEN "Generic Text"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"BRAND")  THEN "Branded Shopping"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"_DES_")  THEN "Branded Shopping"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"GENERIC")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"CAMATO")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"_GEN_")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"PLA")  THEN "Generic Shopping" 
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"DSP/") THEN "Display"
+            WHEN REGEXP_CONTAINS(UPPER(campaign),"DISC/")THEN "Discovery"
+            ELSE "Other" END AS paid_search_type,
+       transactionRevenue AS revenue, 
+       transactions AS transactions
+  FROM `firebasereiss-dmk-preprod.reiss_tableau.reiss_summary_users_sessions`
+ WHERE dateformat >= '2022-01-30'),
+
+paid_channels AS (
+SELECT accounting_week,
+       CASE WHEN channelGrouping = 'Paid Search' THEN paid_search_type
+            ELSE channelGrouping END AS default_channel_grouping,
+       SUM(revenue) AS revenue,     
+       SUM(transactions) AS transactions
+  FROM performance_data
+ GROUP BY 1, 2),
+
+paid_channel_performance AS (
+SELECT *,
+       revenue/transactions AS AOV
+  FROM paid_channels
+ WHERE default_channel_grouping IN ('Branded Text','Branded Shopping', 'Generic Shopping', 'Generic Text', 'Social', 'Affiliates')
+ ORDER BY default_channel_grouping ASC)
+
+SELECT a.accounting_week,
+       c.week_number,
+       CASE WHEN c.week_number BETWEEN 1 AND 4 THEN 1
+            WHEN c.week_number BETWEEN 5 AND 8 THEN 2
+            WHEN c.week_number BETWEEN 9 AND 13 THEN 3
+            WHEN c.week_number BETWEEN 14 AND 17 THEN 4
+            WHEN c.week_number BETWEEN 18 AND 21 THEN 5
+            WHEN c.week_number BETWEEN 22 AND 26 THEN 6
+            WHEN c.week_number BETWEEN 27 AND 30 THEN 7
+            WHEN c.week_number BETWEEN 31 AND 34 THEN 8
+            WHEN c.week_number BETWEEN 35 AND 39 THEN 9
+            WHEN c.week_number BETWEEN 40 AND 43 THEN 10
+            WHEN c.week_number BETWEEN 44 AND 47 THEN 11
+            WHEN c.week_number BETWEEN 48 AND 52 THEN 12
+            ELSE NULL END AS accounting_period,
+       a.default_channel_grouping,
+       a.channel_spend,
+       p.revenue,
+       p.transactions,
+       p.AOV
+  FROM all_channel_spend AS a
+  LEFT JOIN paid_channel_performance AS p
+    ON a.accounting_week = p.accounting_week
+   AND a.default_channel_grouping = p.default_channel_grouping
+  LEFT JOIN `firebasereiss-dmk-preprod.reiss_tableau.reiss_trading_calendar` AS c
+    ON a.accounting_week = c.date 
