@@ -1,0 +1,15 @@
+WITH dt AS (
+SELECT date,
+       fullvisitorid,
+       visitstarttime,
+       hits.page.pagepath as page,
+       lag(hits.page.pagepath, 1) over (partition by fullvisitorid, visitstarttime order by hits.hitnumber asc) as previous_page
+  FROM `firebasereiss-dmk-prod.254232515.ga_sessions_*`, UNNEST(hits) AS hits
+ WHERE totals.visits = 1
+   AND hits.type = 'PAGE'
+   AND _TABLE_SUFFIX BETWEEN '20220501' AND '20220528')
+
+SELECT COUNT(DISTINCT CONCAT(fullvisitorid, cast(visitstarttime as string))) AS sessions
+  FROM dt
+ WHERE previous_page IN ('/','/us/en','/eu/en','/wo/en','/ie/en','/fr/en','/fr/fr','/de/en','/de/de','/nl/en','/hk/en','/au/en')	
+
