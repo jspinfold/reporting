@@ -1,0 +1,50 @@
+WITH editorial_sessions AS (
+select CONCAT(fullvisitorid, visitstarttime) AS session_id
+from (
+  select
+    -- hostname (dimension)
+    hits.page.hostname as hostname,
+    -- page (dimension)
+    hits.page.pagepath as page,
+    -- previous page (dimension)
+    lag(hits.page.pagepath, 1) over (partition by fullvisitorid, visitstarttime order by hits.hitnumber asc) as previous_page,
+    -- page path level 1 (dimension)
+    hits.page.pagepathlevel1 as page_path_level_1,
+    -- page path level 2 (dimension)
+    nullif(hits.page.pagepathlevel2,'') as page_path_level_2,
+    -- page path level 3 (dimension)
+    nullif(hits.page.pagepathlevel3,'') as page_path_level_3,
+    -- page path level 4 (dimension)
+    nullif(hits.page.pagepathlevel4,'') as page_path_level_4,
+    -- page title (dimension)
+    hits.page.pagetitle as page_title,
+    -- landing page (dimension)
+    case when hits.isentrance = true then hits.page.pagepath else null end as landing_page,
+    -- second page (dimension)
+    case when hits.isentrance = true then (lead(hits.page.pagepath, 1) over (partition by fullvisitorid, visitstarttime order by hits.hitnumber asc)) else null end as second_page,
+    -- exit page (dimension)
+    case when hits.isexit = true then hits.page.pagepath else null end as exit_page,
+    hits.isentrance,
+    fullvisitorid,
+    visitstarttime,
+    hits.isexit
+  from
+     `firebasereiss-dmk-prod.254232515.ga_sessions_*`,
+    unnest(hits) as hits
+  where
+    totals.visits = 1
+    and hits.type = 'PAGE'
+    AND _TABLE_SUFFIX BETWEEN '20220501' AND '20220528')
+ WHERE page IN ('/','/us/en','/eu/en','/wo/en','/ie/en','/fr/en','/fr/fr','/de/en','/de/de','/nl/en','/hk/en','/au/en'))
+
+SELECT sum(hits.transaction.transactionrevenue)/1000000
+  FROM `firebasereiss-dmk-prod.254232515.ga_sessions_*`, UNNEST(hits) AS hits
+ WHERE _TABLE_SUFFIX BETWEEN '20220501' AND '20220528'
+   AND CONCAT(fullvisitorid, visitstarttime) IN (SELECT session_id FROM editorial_sessions)
+
+
+
+
+
+
+
