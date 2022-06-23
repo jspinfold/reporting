@@ -1,0 +1,111 @@
+WITH product_sale_performance AS (
+SELECT REPLACE(productsku,'-','') AS productsku,
+       format("%02d",extract (hour from timestamp_seconds(visitstarttime))) as hour,
+       sum(productquantity) as quantity,
+       count(hits.transaction.transactionid) AS unique_purchases,
+       sum(productrevenue)/1000000 as product_revenue
+  FROM `firebasereiss-dmk-prod.254232515.ga_sessions_20220622`, unnest(hits) as hits, unnest(product) as product
+ WHERE totals.visits = 1
+   AND hits.ecommerceaction.action_type = '6'
+ GROUP BY productsku, 2),
+
+product_website_performance AS (
+SELECT REPLACE(productsku,'-','') AS productsku,
+       format("%02d",extract (hour from timestamp_seconds(visitstarttime))) as hour,
+       case when count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) = 0 then 0 else count(case when hits.ecommerceaction.action_type = '3' then fullvisitorid else null end) / count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) end as basket_to_detail_rate,
+       case when count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) = 0 then 0 else count(case when hits.ecommerceaction.action_type = '6' then hits.transaction.transactionid else null end) / count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) end as buy_to_detail_rate,
+       count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) as product_detail_views,
+       count(case when hits.ecommerceaction.action_type = '3' then fullvisitorid else null end) AS product_add_to_basket,
+       count(case when hits.ecommerceaction.action_type = '5' then fullvisitorid else null end) AS product_checkouts
+  FROM `firebasereiss-dmk-prod.254232515.ga_sessions_20220622`, unnest(hits) as hits, unnest(product) as product
+ WHERE totals.visits = 1
+   AND isimpression IS NULL
+ GROUP BY 1, 2),
+
+yesterday_performance AS (
+SELECT w.productsku,
+       w.hour,      
+       w.product_add_to_basket,
+       --ROUND(100*COALESCE(s.unique_purchases,0)/NULLIF(w.product_detail_views,0),2) AS buy_to_detail_rate,
+       --ROUND(100*COALESCE(w.product_add_to_basket,0)/NULLIF(w.product_detail_views,0),2) AS basket_to_detail_rate,
+       w.product_detail_views,
+       COALESCE(s.quantity,0) AS quantity,
+       COALESCE(s.unique_purchases,0) AS unique_purchases,
+       COALESCE(s.product_revenue,0) AS product_revenue,
+  FROM product_website_performance AS w
+  LEFT JOIN product_sale_performance AS s USING(productsku, hour)),
+
+product_data AS (
+SELECT DISTINCT itemnumber,
+       gender
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.directory_items_history`),
+
+product_sale_performance_LY AS (
+SELECT REPLACE(productsku,'-','') AS productsku,
+       format("%02d",extract (hour from timestamp_seconds(visitstarttime))) as hour,
+       sum(productquantity) as quantity,
+       count(hits.transaction.transactionid) AS unique_purchases,
+       sum(productrevenue)/1000000 as product_revenue
+  FROM `sdv-reiss-prd.187867517.ga_sessions_20210616`, unnest(hits) as hits, unnest(product) as product
+ WHERE totals.visits = 1
+   AND hits.ecommerceaction.action_type = '6'
+ GROUP BY productsku, 2),
+
+product_website_performance_LY AS (
+SELECT REPLACE(productsku,'-','') AS productsku,
+       format("%02d",extract (hour from timestamp_seconds(visitstarttime))) as hour,
+       case when count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) = 0 then 0 else count(case when hits.ecommerceaction.action_type = '3' then fullvisitorid else null end) / count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) end as basket_to_detail_rate,
+       case when count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) = 0 then 0 else count(case when hits.ecommerceaction.action_type = '6' then hits.transaction.transactionid else null end) / count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) end as buy_to_detail_rate,
+       count(case when hits.ecommerceaction.action_type = '2' then fullvisitorid else null end) as product_detail_views,
+  FROM  `sdv-reiss-prd.187867517.ga_sessions_20210616`, unnest(hits) as hits, unnest(product) as product
+ WHERE totals.visits = 1
+   AND hits.type = 'PAGE'
+   AND (isImpression IS NULL OR isImpression IS FALSE)
+ GROUP BY 1, 2),
+
+ATB AS (
+SELECT REPLACE(productsku,'-','') AS productsku,
+       format("%02d",extract (hour from timestamp_seconds(visitstarttime))) as hour,
+       COUNT(case when hits.ecommerceaction.action_type = '3' then fullvisitorid else null end) AS product_add_to_basket,
+ FROM  `sdv-reiss-prd.187867517.ga_sessions_20210616`, unnest(hits) as hits, unnest(product) as product
+ WHERE totals.visits = 1
+   AND (isImpression IS NULL OR isImpression IS FALSE)
+ GROUP BY 1,2),
+
+
+LY_performance AS (
+SELECT w.productsku,
+       w.hour,      
+       atb.product_add_to_basket,
+       --ROUND(100*COALESCE(s.unique_purchases,0)/NULLIF(w.product_detail_views,0),2) AS buy_to_detail_rate,
+       --ROUND(100*COALESCE(w.product_add_to_basket,0)/NULLIF(w.product_detail_views,0),2) AS basket_to_detail_rate,
+       w.product_detail_views,
+       COALESCE(s.quantity,0) AS quantity,
+       COALESCE(s.unique_purchases,0) AS unique_purchases,
+       COALESCE(s.product_revenue,0) AS product_revenue,
+  FROM product_website_performance_LY AS w
+       LEFT JOIN product_sale_performance_LY AS s USING(productsku, hour)
+       LEFT JOIN ATB AS atb USING(productsku, hour)),
+
+product_gender AS (
+SELECT Category_Code,
+       Category_Gender  
+  FROM `reiss-historical-sales-data.9Yr_transactions.SKU_Category_Lookup`)
+
+SELECT t1.*,
+       t2.Category_Gender,
+       'LY' AS year
+  FROM LY_performance AS t1
+       LEFT JOIN product_gender AS t2
+         ON LEFT(LPAD(t1.productsku,8,'0'),2) = t2.Category_Code
+
+UNION ALL
+
+SELECT t1.*,
+       t2.gender,
+       'TY' AS year
+  FROM yesterday_performance AS t1
+       LEFT JOIN product_data AS t2 
+         ON t1.productsku = t2.itemnumber 
+
+ 
