@@ -1,0 +1,6 @@
+SELECT default_channel_grouping,
+       SUM(spend) AS total_spend 
+  FROM `reiss-historical-sales-data.marketing_data.marketing_spend` 
+ WHERE date BETWEEN '2019-06-02' AND '2019-06-29'
+ GROUP BY 1
+ ORDER BY 2 DESC
