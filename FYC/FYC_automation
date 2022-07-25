@@ -79,7 +79,7 @@ SELECT *,
 
 SELECT a.accounting_week,
        c.week_number,
-       CASE WHEN c.week_number BETWEEN 1 AND 4 THEN 1
+       /*CASE WHEN c.week_number BETWEEN 1 AND 4 THEN 1
             WHEN c.week_number BETWEEN 5 AND 8 THEN 2
             WHEN c.week_number BETWEEN 9 AND 13 THEN 3
             WHEN c.week_number BETWEEN 14 AND 17 THEN 4
@@ -91,7 +91,7 @@ SELECT a.accounting_week,
             WHEN c.week_number BETWEEN 40 AND 43 THEN 10
             WHEN c.week_number BETWEEN 44 AND 47 THEN 11
             WHEN c.week_number BETWEEN 48 AND 52 THEN 12
-            ELSE NULL END AS accounting_period,
+            ELSE NULL END AS accounting_period,*/
        a.default_channel_grouping,
        a.channel_spend,
        p.revenue,
