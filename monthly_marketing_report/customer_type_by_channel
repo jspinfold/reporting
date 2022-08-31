@@ -1,0 +1,148 @@
+CREATE TEMP FUNCTION
+  transaction_id_to_account_id(transactionid STRING) AS ((
+
+WITH t1 AS (
+SELECT SAFE_CAST((CASE WHEN LENGTH(transactionid) = 36 THEN SAFE_CAST(SUBSTR(transactionid,5,14) AS INT64)
+                       WHEN LENGTH(transactionid) = 34 THEN SAFE_CAST(SUBSTR(transactionid,3,14) AS INT64)
+                       ELSE NULL END + 428)/317 AS INT64) AS step1),
+
+t2 AS (
+SELECT CASE WHEN LENGTH(SAFE_CAST(step1 AS string))=5 THEN CONCAT("0",step1)
+            WHEN LENGTH(SAFE_CAST(step1 AS string))=2 THEN CONCAT("00",step1)
+            WHEN LENGTH(SAFE_CAST(step1 AS string))=3 THEN CONCAT("0",step1,step1)
+            -- additional case for single digit integers from step 1
+            WHEN LENGTH(SAFE_CAST(step1 AS string))=1 THEN CONCAT("000",step1)
+            ELSE SAFE_CAST(step1 AS string) END AS step2
+  FROM t1),
+
+t3 AS (
+SELECT CASE WHEN LENGTH(transactionid)=34 THEN CONCAT(LEFT(transactionid,2),step2)
+            WHEN LENGTH(transactionid)=36 THEN CONCAT(LEFT(transactionid,4),step2)
+            ELSE NULL END AS step3,
+       (SAFE_CAST(SUBSTR(transactionid,5,14) AS INT64)+428)/317 AS step4
+  FROM t2),
+
+t4 AS (
+SELECT t3.step3,
+       CONCAT(LEFT(transactionid,4), CASE WHEN LENGTH(SAFE_CAST(step4 AS string)) = 5 THEN CONCAT("0",SAFE_CAST(step4 AS string))
+                                          ELSE SAFE_CAST(step4 AS string) END) AS step5
+  FROM t3)
+  
+SELECT CASE WHEN LENGTH(step5) = 8 THEN step5
+            ELSE SUBSTR(step3,1,8) END AS account_number
+  FROM t4));
+  
+WITH t1 AS (
+SELECT hits.transaction.transactionid AS transaction_id,
+       PARSE_DATETIME('%d/%m/%Y%H:%M:%S',RIGHT(hits.transaction.transactionid,18)) AS timestamp_from_transaction_id,
+       channelgrouping AS default_channel_grouping,
+       --visitStartTime,
+       --hits.time,
+       --TIMESTAMP_SECONDS(visitStartTime+(CAST(hits.time/1000 AS INT64))) AS datetime_from_hit,
+       SUM(hits.transaction.transactionrevenue)/1000000 AS ga_revenue,
+       IFNULL(SUM(hits.transaction.transactionshipping)/1000000,0) AS delivery,
+       --IFNULL(SUM(hits.transaction.transactiontax)/1000000,0) AS tax,
+  FROM `firebasereiss-dmk-prod.254232515.ga_sessions_*`, UNNEST(hits) AS hits
+ WHERE totals.visits = 1
+   AND _TABLE_SUFFIX BETWEEN '20220621' AND '20220809'
+ GROUP BY 1, 2, 3
+HAVING hits.transaction.transactionid IS NOT NULL),
+
+t2 AS (
+SELECT *,
+       TIMESTAMP(timestamp_from_transaction_id, "Europe/London") AS transaction_id_converted_datetime
+  FROM t1),
+
+t3 AS (
+SELECT t2.transaction_id,
+       t2.default_channel_grouping,
+       t2.ga_revenue AS ga_demand,
+       t2.transaction_id_converted_datetime, 
+       transaction_id_to_account_id(transaction_id) AS AccountNumber,
+       --ABS(DATETIME_DIFF(timestamp_from_transaction_id, BST, SECOND))
+  FROM t2),
+
+baskets AS (
+SELECT basketid,
+       orderdate,
+       clientid,
+       AccountNumber,
+       b.emailaddress,
+       SUM(s740orderstakenvalue+handchargepaidgbp) AS revenue
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets` AS b
+  LEFT JOIN `firebasereiss-dmk-prod.reiss_total_platform.svoccust` USING (account_number)
+ WHERE CAST(orderdate AS DATE) BETWEEN '2022-06-30' AND '2022-08-03'
+ GROUP BY 1, 2, 3, 4, 5),
+
+combined AS (
+SELECT b.basketid,
+       b.orderdate,
+       b.clientid,
+       b.revenue AS basket_revenue,
+       b.emailaddress,
+       t3.*,
+       ABS(DATETIME_DIFF(transaction_id_converted_datetime,orderdate, SECOND)) AS time_diff_seconds
+  FROM baskets AS b 
+  LEFT JOIN t3
+    ON t3.AccountNumber = b.AccountNumber
+   AND t3.transaction_id_converted_datetime >= b.orderdate - INTERVAL 3600 SECOND
+   AND t3.transaction_id_converted_datetime <= b.orderdate + INTERVAL 3600 SECOND),
+
+combined_min_time AS (
+SELECT *,
+       MIN(time_diff_seconds) OVER (PARTITION BY basketid) AS min_time
+  FROM combined),
+
+final_combined AS (
+SELECT *
+  FROM combined_min_time
+ WHERE (time_diff_seconds = min_time
+    OR time_diff_seconds IS NULL)),
+
+t4 AS (
+SELECT CAST(order_date AS DATE) AS order_date,
+       UPPER(emailaddress) AS customer_id,
+       CASE WHEN clientid IN ('RSGB','UK') THEN 'UK' 
+            WHEN clientid IN ('RSHK','HK') THEN 'HK'
+            WHEN clientid IN ('RSUS','US') THEN 'US'
+            WHEN clientid IN ('RSDE','DE') THEN 'DE'
+            WHEN clientid IN ('RSIE','IE') THEN 'IE'
+            WHEN clientid IN ('RSEU','EU') THEN 'EU'
+            WHEN clientid IN ('CA','RSWO','RW') THEN 'RW'
+            WHEN clientid IN ('RSAU','AU') THEN 'AU'
+            WHEN clientid IN ('RSFR','FR') THEN 'FR'
+            WHEN clientid IN ('RSNL') THEN 'NL' END AS site, 
+       basketid AS order_id,
+       SUM(s740orderstakenvalue+handchargepaidgbp)  AS gross_revenue,
+       COUNT(s740orderstakenqty) as quantity,
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+ WHERE basketid IS NOT NULL
+   AND (canceldate IS NULL OR canceldate = '1900-01-01 00:00:00 UTC')
+ GROUP BY 1, 2, 3, 4),
+
+t5 AS (
+SELECT *,
+       ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date ASC) as order_seq,
+       LAG(order_date) OVER (PARTITION BY customer_id ORDER BY order_date ASC) as previous_order_date 
+  FROM t4),
+
+t6 AS (
+SELECT *,
+       DATE_DIFF(order_date, previous_order_date, DAY) AS days_between_orders 
+  FROM t5),
+
+t7 AS (
+SELECT *,
+       CASE WHEN order_seq = 1 then 'new'
+            WHEN days_between_orders > 365 THEN 'reactivated'
+            ELSE 'returning'
+        END AS  customer_type  
+  FROM t6)
+
+SELECT default_channel_grouping,
+       customer_type,
+       COUNT(DISTINCT basketid) 
+  FROM final_combined
+  LEFT JOIN t7
+    ON final_combined.basketid = t7.order_id
+ GROUP BY 1, 2
