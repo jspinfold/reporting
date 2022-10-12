@@ -1,0 +1,39 @@
+WITH t1 AS (
+SELECT CAST(order_date AS DATE) AS report_date,
+       --financial_year,
+       --period,
+       --week,
+       --currencycode,
+       currencyrate,
+       rate AS reiss_currencyrate,
+       --clientid,
+       --site_country,
+       territory,
+       SUM(s740orderstakenvalue+handchargepaidgbp) + SUM(COALESCE(SAFE_CAST(order_promotion AS FLOAT64),0)) + SUM(COALESCE(SAFE_CAST(order_promotion AS FLOAT64),0)) AS gross_revenue,
+       COUNT(DISTINCT basketid) AS orders
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+  LEFT JOIN `firebasereiss-dmk-prod.mapping.clientid_to_site_territory`
+       USING(clientid)
+  LEFT JOIN `reiss-historical-sales-data.marketing_data.date_lookup`
+    ON CAST(ordertakendate AS DATE) = report_date
+  LEFT JOIN `firebasereiss-dmk-prod.ecomm_trade.reiss_currency_rates` AS c
+       USING(financial_year,period,currencycode) 
+ WHERE CAST(order_date AS DATE) >= '2019-02-03'
+ --GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+ GROUP BY 1, 2, 3, 4),
+
+t2 AS (
+SELECT *,
+       gross_revenue * currencyrate/COALESCE(reiss_currencyrate,currencyrate) AS adjusted_gross_demand,
+       gross_revenue * currencyrate AS local_gross_demand
+  FROM t1)
+
+SELECT --*
+       report_date,
+       CASE WHEN territory = 'RW' THEN 'ROW' ELSE territory END AS territory,
+       SUM(adjusted_gross_demand) AS gross_revenue,
+       SUM(orders) AS orders
+  FROM t2
+ WHERE report_date <= CURRENT_DATE() - INTERVAL 1 DAY
+ GROUP BY 1, 2
+ ORDER BY 1 DESC
