@@ -1,0 +1,19 @@
+WITH dt AS (
+SELECT DISTINCT basketid,
+       CAST(ordertakendate AS DATE) AS ordertakendate,
+       CAST(order_date AS DATE) AS order_date,
+       CAST(orderdate AS DATE) AS orderdate
+  FROM `firebasereiss-dmk-prod.reiss_total_platform.baskets`
+ WHERE clientid LIKE 'RS%')
+
+SELECT CASE WHEN ordertakendate < order_date AND ordertakendate < orderdate THEN 'ordertakendate'
+            WHEN order_date < ordertakendate AND order_date < orderdate THEN 'order_date'
+            WHEN orderdate < order_date AND orderdate < ordertakendate THEN 'orderdate'
+            WHEN ordertakendate < order_date AND ordertakendate = orderdate THEN 'ordertakendate|orderdate'
+            WHEN order_date < ordertakendate AND order_date = orderdate THEN 'order_date|orderdate'
+            WHEN order_date < orderdate AND ordertakendate = order_date THEN 'ordertakendate|order_date'
+            ELSE 'equal' END AS first_date,
+       COUNT(DISTINCT basketid) AS counts
+  FROM dt
+ GROUP BY 1
+ ORDER BY 2 DESC
