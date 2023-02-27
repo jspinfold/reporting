@@ -1,0 +1,167 @@
+WITH emarsys_raw_data AS (
+SELECT campaign_name,
+       REGEXP_REPLACE(UPPER(REGEXP_REPLACE(SPLIT(campaign_name,' - ')[OFFSET(0)]," ","")), "[_UK]+$|_EU$|_IE$|_AU$|_FR$|_DE$|_CA$|_US$|_RW$|_HK$|_WO$|_NU$|_NL$", "") AS campaign_no_territory,
+       launch_date AS send_date,
+        CASE WHEN campaign_name LIKE '%_WELCOME%' THEN 'WELCOME'
+             WHEN campaign_name LIKE '%_ABANDON_BASKET_EMAIL%' THEN 'ABANDON_BASKET'
+             WHEN campaign_name LIKE '%_BROWSE_%' THEN 'ABANDON_BROWSE'
+             WHEN campaign_name LIKE '%_BIRTHDAY_EMAIL_%' THEN 'BIRTHDAY'
+             WHEN campaign_name LIKE '%_POST_PURCHASE_THANK_YOU_%' THEN 'POST_PURCHASE'
+             WHEN campaign_name LIKE '%_POST_PURCHASE_WEAR_WITH_%' THEN 'POST_PURCHASE'
+             WHEN campaign_name LIKE '%_LEAD_TO_FTB_%' THEN 'LEAD_TO_FTB'
+             WHEN campaign_name LIKE '%_INACTIVE_WINBACK_%' THEN 'INACTIVE'
+             ELSE NULL 
+         END AS automation_category, 
+        total_sent,
+        total_delivered,
+        total_opened,
+        clicked,
+        total_unsubscribed
+  FROM `reiss-historical-sales-data.marketing_data.emarsys_historic_data`
+ WHERE launch_date > '2020-05-01'
+   AND (campaign_name LIKE '%_WELCOME%'
+    OR campaign_name LIKE '%_ABANDON_BASKET_EMAIL%'
+    OR campaign_name LIKE '%_BROWSE_%'
+    OR campaign_name LIKE '%_BIRTHDAY_EMAIL_%'
+    OR campaign_name LIKE '%_POST_PURCHASE_THANK_YOU_%'
+    OR campaign_name LIKE '%_POST_PURCHASE_WEAR_WITH_%'
+    OR campaign_name LIKE '%_LEAD_TO_FTB_%'
+    OR campaign_name LIKE '%_INACTIVE_WINBACK_%')
+ ORDER BY launch_date DESC),
+
+emarsys AS (
+SELECT automation_category,
+       send_date AS dateformat,
+       --territory,
+       SUM(total_sent) AS sends,
+       SUM(total_delivered) AS delivered,
+       SUM(total_opened) AS opened,
+       SUM(clicked) AS clicked,
+       SUM(total_unsubscribed) AS unsubscribed
+  FROM emarsys_raw_data 
+ GROUP BY 1, 2),
+
+exponea AS (
+SELECT CASE WHEN action_name LIKE '%WELCOME_EMAIL%' THEN 'WELCOME'
+            WHEN action_name LIKE '%ABANDON_BASKET_EMAIL%' THEN 'ABANDON_BASKET'
+            WHEN action_name LIKE '%ABANDON_BROWSE_EMAIL%' THEN 'ABANDON_BROWSE'
+            WHEN action_name LIKE '%BIRTHDAY_EMAIL%' THEN 'BIRTHDAY'
+            WHEN action_name LIKE '%POST_PURCHASE_EMAIL%' THEN 'POST_PURCHASE'
+            WHEN action_name LIKE '%LEAD_TO_FIRST_TIME_BUYER_EMAIL%' THEN 'LEAD_TO_FTB'
+            WHEN action_name LIKE '%INACTIVE_EMAIL%' THEN 'INACTIVE'
+            ELSE NULL 
+         END AS automation_category,
+       send_date AS dateformat,
+       SUM(enqueued) AS sends,
+       SUM(delivered) AS delivered,
+       SUM(opened) AS opened,
+       SUM(clicked) AS clicked,
+       SUM(unsubscribe) AS unsubscribed
+  FROM `firebasereiss-dmk-preprod.reiss_total_platform.reiss_exponea_email_engagement`
+ WHERE action_name LIKE '%WELCOME_EMAIL%'
+    OR action_name LIKE '%ABANDON_BASKET_EMAIL%'
+    OR action_name LIKE '%ABANDON_BROWSE_EMAIL%'
+    OR action_name LIKE '%BIRTHDAY_EMAIL%'
+    OR action_name LIKE '%POST_PURCHASE_EMAIL%'
+    OR action_name LIKE '%LEAD_TO_FIRST_TIME_BUYER_EMAIL%'
+    OR action_name LIKE '%INACTIVE_EMAIL%'
+ GROUP BY 1, 2),
+
+performance AS (
+SELECT CASE WHEN UPPER(campaign) LIKE '%_WELCOME%' THEN 'WELCOME'
+            WHEN UPPER(campaign) LIKE '%_ABANDON_BASKET_EMAIL%' THEN 'ABANDON_BASKET'
+            WHEN UPPER(campaign) LIKE '%_BROWSE_%' THEN 'ABANDON_BROWSE'
+            WHEN UPPER(campaign) LIKE '%_BIRTHDAY_EMAIL_%' THEN 'BIRTHDAY'
+            WHEN UPPER(campaign) LIKE '%_POST_PURCHASE_THANK_YOU_%' THEN 'POST_PURCHASE'
+            WHEN UPPER(campaign) LIKE '%_POST_PURCHASE_WEAR_WITH_%' THEN 'POST_PURCHASE'
+            WHEN UPPER(campaign) LIKE '%_LEAD_TO_FTB_%' THEN 'LEAD_TO_FTB'
+            WHEN UPPER(campaign) LIKE '%_INACTIVE_WINBACK_%' THEN 'INACTIVE'
+            WHEN UPPER(campaign) LIKE '%WELCOME_EMAIL%' THEN 'WELCOME'
+            WHEN UPPER(campaign) LIKE '%ABANDON_BASKET_EMAIL%' THEN 'ABANDON_BASKET'
+            WHEN UPPER(campaign) LIKE '%ABANDON_BROWSE_EMAIL%' THEN 'ABANDON_BROWSE'
+            WHEN UPPER(campaign) LIKE '%BIRTHDAY_EMAIL%' THEN 'BIRTHDAY'
+            WHEN UPPER(campaign) LIKE '%POST_PURCHASE_EMAIL%' THEN 'POST_PURCHASE'
+            WHEN UPPER(campaign) LIKE '%LEAD_TO_FIRST_TIME_BUYER_EMAIL%' THEN 'LEAD_TO_FTB'
+            WHEN UPPER(campaign) LIKE '%INACTIVE_EMAIL%' THEN 'INACTIVE'
+            ELSE NULL 
+        END AS automation_category,
+       dateformat,
+       SUM(sessions) AS sessions,
+       SUM(transactionRevenue) AS revenue,
+       SUM(transactions) AS transactions   
+  FROM `firebasereiss-dmk-preprod.reiss_tableau.reiss_summary_users_sessions` 
+ WHERE dateformat > '2020-05-01' 
+   AND channelGrouping = 'Email'
+   AND (
+    -- Exponea
+       UPPER(campaign) LIKE '%WELCOME_EMAIL%'
+    OR UPPER(campaign) LIKE '%ABANDON_BASKET_EMAIL%'
+    OR UPPER(campaign) LIKE '%ABANDON_BROWSE_EMAIL%'
+    OR UPPER(campaign) LIKE '%BIRTHDAY_EMAIL%'
+    OR UPPER(campaign) LIKE '%POST_PURCHASE_EMAIL%'
+    OR UPPER(campaign) LIKE '%LEAD_TO_FIRST_TIME_BUYER_EMAIL%'
+    OR UPPER(campaign) LIKE '%INACTIVE_EMAIL%'
+    -- Historic Emarsys
+    OR UPPER(campaign) LIKE '%_WELCOME%'
+    OR UPPER(campaign) LIKE '%_ABANDON_BASKET_EMAIL%'
+    OR UPPER(campaign) LIKE '%_BROWSE_%'
+    OR UPPER(campaign) LIKE '%_BIRTHDAY_EMAIL_%'
+    OR UPPER(campaign) LIKE '%_POST_PURCHASE_THANK_YOU_%'
+    OR UPPER(campaign) LIKE '%_POST_PURCHASE_WEAR_WITH_%'
+    OR UPPER(campaign) LIKE '%_LEAD_TO_FTB_%'
+    OR UPPER(campaign) LIKE '%_INACTIVE_WINBACK_%')
+ GROUP BY 1, 2),
+
+combined AS (
+SELECT *
+  FROM emarsys
+
+UNION ALL
+
+SELECT *
+  FROM exponea),
+
+dt AS (
+SELECT automation_category,
+       dateformat,
+       SUM(sends) AS sends,
+       SUM(delivered) AS delivered,
+       SUM(opened) AS opened,
+       SUM(clicked) AS clicked,
+       SUM(unsubscribed) AS unsubscribed,
+       SUM(sessions) AS sessions,
+       SUM(revenue) AS revenue,
+       SUM(transactions) AS transactions
+  FROM combined
+  LEFT JOIN performance USING(automation_category,dateformat)
+ GROUP BY 1, 2)
+
+SELECT COALESCE(c.dateformat, DATE_ADD(h.dateformat, INTERVAL 364 DAY)) AS report_date,
+       c.sends AS sends,
+       c.delivered AS delivered,
+       c.opened AS opened,
+       c.clicked AS clicked,
+       c.unsubscribed AS unsubscribed,
+       c.sessions AS sessions,
+       c.revenue AS revenue,
+       c.transactions AS transactions,
+       h.automation_category,
+       h.sends AS LY_sends,
+       h.delivered AS LY_delivered,
+       h.opened AS LY_opened,
+       h.clicked AS LY_clicked,
+       h.unsubscribed AS LY_unsubscribed,
+       h.revenue AS LY_revenue,
+       h.sessions AS LY_sessions,
+       h.transactions AS LY_transactions
+  FROM dt AS h
+  FULL JOIN dt AS c
+    ON h.automation_category = c.automation_category AND
+       c.dateformat = DATE_ADD(h.dateformat, INTERVAL 364 DAY)
+ WHERE h.dateformat BETWEEN DATE_SUB(PARSE_DATE('%Y%m%d',@DS_START_DATE), INTERVAL 364 DAY) AND DATE_SUB(PARSE_DATE('%Y%m%d',@DS_END_DATE), INTERVAL 364 DAY)
+
+
+ 
+
+
+ 
