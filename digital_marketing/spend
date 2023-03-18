@@ -1,0 +1,62 @@
+WITH t1 AS (
+SELECT *
+  FROM `reiss-historical-sales-data.marketing_spend.paid_marketing_funnel`
+
+UNION ALL
+
+SELECT date AS Date,
+       'Epsilon' AS Data_Source_type_name,
+       'Display' AS Paid_Marketing__Type,
+       'UK' AS Paid_Marketing__Country,
+       'GBP' AS Currency,
+       spend AS Paid_Marketing___Spend,
+       0 AS Paid_Marketing___Agency_Fees,
+       0 AS Partnerize_Approved_Spend      
+  FROM `reiss-historical-sales-data.marketing_spend.epsilon_display`),
+
+t2 AS (
+SELECT a.*,
+       b.week,
+       b.period,
+       b.financial_year,
+       COALESCE(c.rate,1) AS reiss_currency_rate  
+  FROM t1 AS a
+  LEFT JOIN `reiss-historical-sales-data.marketing_data.date_lookup` AS b
+    ON a.Date = b.report_date
+  LEFT JOIN `firebasereiss-dmk-prod.ecomm_trade.reiss_currency_rates` AS c
+    ON b.financial_year = c.financial_year
+   AND b.period = c.period
+   AND a.Currency = c.currencycode),
+
+t3 AS (
+SELECT Date AS date,
+       week,
+       period,
+       financial_year,
+       Data_Source_type_name AS platform,
+       Paid_Marketing___Type AS type,
+       Paid_Marketing___Country AS country,
+       Paid_Marketing___Spend/reiss_currency_rate AS media_spend,
+       Paid_Marketing___Agency_Fees/reiss_currency_rate AS agency_spend,
+       Partnerize_Approved_Spend/reiss_currency_rate AS pz_approved 
+  FROM t2
+ WHERE Paid_Marketing___Spend > 0
+    OR Paid_Marketing___Agency_Fees > 0
+    OR Partnerize_Approved_Spend > 0)
+
+SELECT * EXCEPT(media_spend,pz_approved,agency_spend),
+       CASE WHEN type = 'Google Display' THEN 'Display'
+            WHEN platform = 'Partnerize' THEN 'Affiliates'
+            WHEN platform IN ('Facebook Ads','Pinterest') THEN 'Social Paid'
+            WHEN platform = 'DoubleClick Search' THEN 'Paid Search'
+            WHEN platform = 'Epsilon' THEN 'Display'
+            END AS default_channel_grouping,
+       CASE WHEN platform != 'Partnerize' THEN media_spend
+            WHEN date <= CURRENT_DATE() - INTERVAL 35 DAY THEN pz_approved
+            ELSE media_spend*0.65
+            END AS media_spend,
+       agency_spend
+  FROM t3
+
+
+
