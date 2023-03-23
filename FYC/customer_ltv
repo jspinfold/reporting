@@ -1,0 +1,66 @@
+WITH t1 AS (
+SELECT customer,
+       order_id,
+       order_timestamp,
+       SUM(product_revenue) AS gross_revenue,
+       SUM(product_revenue-return_value) AS net_revenue,
+       SUM(quantity) AS gross_quantity,
+       SUM(quantity-return_quantity) AS net_quantity
+  FROM `firebasereiss-dmk-prod.ecomm_trade.baskets_reiss`
+ GROUP BY 1, 2, 3
+ ORDER BY 1 ASC, 3 ASC),
+
+t2 AS (
+SELECT *,
+       ROW_NUMBER() OVER(PARTITION BY customer ORDER BY order_timestamp ASC) AS total_order_count,
+       LAG(order_timestamp) OVER(PARTITION BY customer ORDER BY order_timestamp ASC) AS last_order_timestamp
+  FROM t1),
+
+t3 AS (
+SELECT *,
+       DATE_DIFF(order_timestamp, last_order_timestamp, HOUR)/24 AS days_since_last_order
+  FROM t2),
+
+t4 AS (
+SELECT *,
+       SUM(CASE WHEN days_since_last_order > 395.0 THEN 1 ELSE 0 END) OVER (PARTITION BY customer ORDER BY order_timestamp) AS order_group
+  FROM t3),
+
+t5 AS (
+SELECT *,
+       ROW_NUMBER() OVER (PARTITION BY customer, order_group ORDER BY order_timestamp) AS group_order_number,
+       --LAG(order_timestamp) OVER(PARTITION BY customer, order_group ORDER BY order_timestamp ASC) AS last_group_order_timestamp
+  FROM t4),
+
+t6 AS (
+SELECT *,
+       DATE_DIFF(LEAD(order_timestamp) OVER(PARTITION BY customer, order_group ORDER BY order_timestamp ASC),order_timestamp, HOUR)/24 AS days_until_next_group_order
+  FROM t5),
+
+t7 AS (
+SELECT customer,
+       order_group,
+       MIN(order_timestamp) AS first_order,
+       SUM(CASE WHEN group_order_number = 1 THEN gross_revenue END) AS first_order_value,
+       MAX(group_order_number) AS total_orders,
+       SUM(gross_revenue) AS ltv
+  FROM t6
+ WHERE order_timestamp >= '2022-01-30'
+ GROUP BY 1, 2)
+
+SELECT *       
+  FROM t7
+
+/*
+select t.*,
+       row_number() over (partition by CustomerNumber, grp
+                          order by date
+                         ) as rank
+from (select t.*,
+             sum(case when channel = 'A' then 1 else 0 end) over
+                 (partition by CustomerNumber order by date) as grp
+      from t
+     ) t;
+
+
+*/
